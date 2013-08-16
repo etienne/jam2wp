@@ -30,6 +30,33 @@ puts "Done."
 
 @target = Nokogiri.XML(File.open('template.xml'))
 
+def text_to_html(text)
+  [
+    [%r{"([^"]*)"\s\(((?:http://|/|mailto:)[^\s\)]*)\)}, '<a href="\2">\1</a>'], # URLs with title
+		[%r{\[([^"\]]*)\]\s\(((?:http://|/)[^\s\)]*)\)}, '<img src="\2" alt="\1" border="0"/>'], # Images
+		[%r{([^"])(http://[^\s\)\]]+)}, '\1<a href="\2">\2</a>'], # plain URLs
+		[%r{(\s|^|&nbsp;)/([^\s][^/<]*)/(\W|$)}, '\1<em>\2</em>\3'], # Italic
+		[%r{(\s|^|&nbsp;)-=([^-=<]*)=-(\W|$)}, '\1<strike>\2</strike>\3'], # Strike (ugly but avoids clashes with other - and = handling)
+		[%r{(\d*)\^(\d*)}, '\1<sup>\2</sup>'],	# Superscript
+		[%r{(\s|^|&nbsp;)\*([^\s][^\*]*)\*(\W|$)}, '\1<strong>\2</strong>\3'], 	# Bold
+		[%r{\\([\*/"-])}, '\1'], # Backslashes
+		
+    [%r{\r}, ''], # Strip carriage returns
+		[%r{^([^\n]+)$}m, '<p>\1</p>'],	 # Paragraphs
+		[%r{<p>-(=)+-</p>}, '<hr>'], # Horizontal rules
+		[%r{<p>([^\n]+)</p>[\n\s]*<p>-*</p>}, '<h2>\1</h2>'], # Small headings
+		[%r{<p>[-·•]\s?([^\n]+)</p>(\n{1}|$)}, "<ul><li>\\1</li></ul>\n"], # Lists (first pass)
+		[%r{</ul>\n<ul>}, "\n"], # Lists (second pass)
+		[%r{<p>(\d)\. ([^\n]+)</p>(\n{1}|$)}, '<ol type="1" start="\1"><li>\2</li></ol>' + "\n"], # Ordered lists (first pass)
+		[%r{</ol>\n<ol type="1" start="\d">}, "\n"], # Ordered lists (second pass)
+		[%r{</p>\n<p>([^\t])}, "<br>\n\\1"], # Line breaks
+		[%r{(/?)>\[([^\s=>\]]*)=([^\s>\]]*)\]}, ' \2="\3"\1>'] # Custom property <roger=patate>
+  ].each do |rule|
+    text.gsub! rule[0], rule[1]
+  end
+  text
+end
+
 def convert_issues
   print "Parsing issues... "
   @draft_issues = []
@@ -54,31 +81,7 @@ def convert_articles
       master_id
     end
     
-    # Text to HTML
-    article_text = a.column('article')
-    [
-      [%r{"([^"]*)"\s\(((?:http://|/|mailto:)[^\s\)]*)\)}, '<a href="\2">\1</a>'], # URLs with title
-			[%r{\[([^"\]]*)\]\s\(((?:http://|/)[^\s\)]*)\)}, '<img src="\2" alt="\1" border="0"/>'], # Images
-			[%r{([^"])(http://[^\s\)\]]+)}, '\1<a href="\2">\2</a>'], # plain URLs
-			[%r{(\s|^|&nbsp;)/([^\s][^/<]*)/(\W|$)}, '\1<em>\2</em>\3'], # Italic
-			[%r{(\s|^|&nbsp;)-=([^-=<]*)=-(\W|$)}, '\1<strike>\2</strike>\3'], # Strike (ugly but avoids clashes with other - and = handling)
-			[%r{(\d*)\^(\d*)}, '\1<sup>\2</sup>'],	# Superscript
-			[%r{(\s|^|&nbsp;)\*([^\s][^\*]*)\*(\W|$)}, '\1<strong>\2</strong>\3'], 	# Bold
-			[%r{\\([\*/"-])}, '\1'], # Backslashes
-			
-      [%r{\r}, ''], # Strip carriage returns
-			[%r{^([^\n]+)$}m, '<p>\1</p>'],	 # Paragraphs
-			[%r{<p>-(=)+-</p>}, '<hr>'], # Horizontal rules
-			[%r{<p>([^\n]+)</p>[\n\s]*<p>-*</p>}, '<h2>\1</h2>'], # Small headings
-			[%r{<p>[-·•]\s?([^\n]+)</p>(\n{1}|$)}, "<ul><li>\\1</li></ul>\n"], # Lists (first pass)
-			[%r{</ul>\n<ul>}, "\n"], # Lists (second pass)
-			[%r{<p>(\d)\. ([^\n]+)</p>(\n{1}|$)}, '<ol type="1" start="\1"><li>\2</li></ol>' + "\n"], # Ordered lists (first pass)
-			[%r{</ol>\n<ol type="1" start="\d">}, "\n"], # Ordered lists (second pass)
-			[%r{</p>\n<p>([^\t])}, "<br>\n\\1"], # Line breaks
-			[%r{(/?)>\[([^\s=>\]]*)=([^\s>\]]*)\]}, ' \2="\3"\1>'] # Custom property <roger=patate>
-    ].each do |rule|
-      article_text.gsub! rule[0], rule[1]
-    end
+    article_text = text_to_html(a.column('article'))
     
     Nokogiri::XML::Builder.with(@target.at('channel')) do |xml|
       xml.item do
@@ -99,8 +102,34 @@ def convert_articles
   puts "Done."
 end
 
+def convert_pages
+  print "Parsing pages... "
+  @source.css('table[name=pages]').each do |p|
+    # Only import articles that are marked as current
+    next unless p.column('current') == '1'
+  
+    page_text = text_to_html(p.column('text'))
+    
+    Nokogiri::XML::Builder.with(@target.at('channel')) do |xml|
+      xml.item do
+        # xml['wp'].post_id actual_id
+        xml['dc'].creator 1
+        xml['wp'].post_date p.column('timestamp')
+        xml['wp'].post_type 'page'
+        xml['wp'].status 'publish'
+        xml.title p.column('title')
+        xml['content'].encoded do
+          xml.cdata page_text
+        end
+      end
+    end
+    
+  end
+  puts "Done."
+end
+
 def convert_all
-  %w(issues articles).each do |m|
+  %w(issues articles pages).each do |m|
     send "convert_#{m}"
   end
 end

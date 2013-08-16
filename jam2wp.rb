@@ -100,6 +100,17 @@ def convert_articles
         xml['content'].encoded do
           xml.cdata article_text
         end
+        {
+          'author' => a.column('author'),
+          'subtitle' => a.column('subtitle')
+        }.each do |key, value|
+          unless value == ''
+            xml['wp'].postmeta do
+              xml['wp'].meta_key key
+              xml['wp'].meta_value value
+            end
+          end
+        end
       end
     end
     

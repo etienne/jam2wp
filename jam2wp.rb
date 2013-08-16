@@ -13,6 +13,10 @@ end
 
 require 'nokogiri'
 
+if ARGV.length != 2
+  abort "Usage: ./jam2wp.rb [path to source XML] [path to target XML]"
+end
+
 print "Reading #{ARGV.first}... "
 source = Nokogiri::XML(File.open(ARGV.first))
 puts "Done."

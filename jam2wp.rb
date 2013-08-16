@@ -59,11 +59,13 @@ end
 
 def convert_issues
   print "Parsing issues... "
+  @valid_issues = []
   @draft_issues = []
   @source.css('table[name=issues]').each do |i|
+    @valid_issues << i.column('id')
     @draft_issues << i.column('id') if i.column('publish') == '0'
   end
-  puts "found #{@draft_issues.length} draft issues. Done."
+  puts "found #{@valid_issues.length} valid issues, including #{@draft_issues.length} draft issues. Done."
 end
 
 def convert_articles
@@ -71,7 +73,10 @@ def convert_articles
   @source.css('table[name=articles]').each do |a|
     # Only import articles that are marked as current
     next unless a.column('current') == '1'
-  
+    
+    # Don't import articles from non-existing issues
+    next unless @valid_issues.include? a.column('issue')
+    
     # Determine actual ID
     master_id = a.column('master')
     id = a.column('id')

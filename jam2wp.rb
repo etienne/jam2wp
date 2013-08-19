@@ -30,6 +30,28 @@ puts "Done."
 
 @target = Nokogiri.XML(File.open('template.xml'))
 
+# Preprocess files
+print "Preprocessing files... "
+@article_files = {}
+@source.css('table[name=files]').each do |f|
+  case f.column('module')
+  when '4'
+    # Articles
+    @article_files[f.column('item')] = f
+  when '6'
+    # Issues
+  end
+end
+
+# Prepare file paths
+@file_paths = {}
+@source.css('table[name=_links]').each do |l|
+  if l.column('current') && l.column('module') == '15'
+    @file_paths[l.column('item')] = l.column('link')
+  end
+end
+puts "Done."
+
 def text_to_html(text)
   [
     [%r{"([^"]*)"\s\(((?:http://|/|mailto:)[^\s\)]*)\)}, '<a href="\2">\1</a>'], # URLs with title
@@ -86,7 +108,34 @@ def convert_articles
       master_id
     end
     
+    # Convert plain text to HTML
     article_text = text_to_html(a.column('article'))
+    
+    # Check if we have an image for this article, and import it
+    if file = @article_files[actual_id]
+      file_id = ''
+      file_id = file.column('id').to_i + 2000
+      Nokogiri::XML::Builder.with(@target.at('channel')) do |xml|
+        xml.item do
+          xml['wp'].post_id file_id
+          xml.title File.basename(file.column('filename'), ".*")
+          xml['wp'].post_date a.column('timestamp')
+          xml['wp'].post_type 'attachment'
+          xml['wp'].post_parent actual_id
+          xml['excerpt'].encoded do
+            xml.cdata a.column('imageCaption')
+          end
+          xml['wp'].status 'inherit'
+          xml['wp'].attachment_url "http://www.unionlibre.net/#{@file_paths[file.column('id')]}"
+          xml['wp'].postmeta do
+            xml['wp'].meta_key '_wp_attached_file'
+            xml['wp'].meta_value do
+              xml.cdata file.column('filename')
+            end
+          end
+        end
+      end
+    end
     
     Nokogiri::XML::Builder.with(@target.at('channel')) do |xml|
       xml.item do
@@ -102,7 +151,8 @@ def convert_articles
         end
         {
           'author' => a.column('author'),
-          'subtitle' => a.column('subtitle')
+          'subtitle' => a.column('subtitle'),
+          '_thumbnail_id' => file_id
         }.each do |key, value|
           unless value == ''
             xml['wp'].postmeta do
@@ -144,13 +194,10 @@ def convert_pages
   puts "Done."
 end
 
-def convert_all
-  %w(issues articles pages).each do |m|
-    send "convert_#{m}"
-  end
+# Convert all
+%w(issues articles pages).each do |m|
+  send "convert_#{m}"
 end
-
-convert_all
 
 print "Writing #{ARGV[1]}... "
 File.open(ARGV[1], 'w') { |f| f.write(@target.to_xml) }

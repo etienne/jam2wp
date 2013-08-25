@@ -30,28 +30,6 @@ puts "Done."
 
 @target = Nokogiri.XML(File.open('template.xml'))
 
-# Preprocess files
-print "Preprocessing files... "
-@article_files = {}
-@source.css('table[name=files]').each do |f|
-  case f.column('module')
-  when '4'
-    # Articles
-    @article_files[f.column('item')] = f
-  when '6'
-    # Issues
-  end
-end
-
-# Prepare file paths
-@file_paths = {}
-@source.css('table[name=_links]').each do |l|
-  if l.column('current') && l.column('module') == '15'
-    @file_paths[l.column('item')] = l.column('link')
-  end
-end
-puts "Done."
-
 def text_to_html(text)
   [
     [%r{"([^"]*)"\s\(((?:http://|/|mailto:)[^\s\)]*)\)}, '<a href="\2">\1</a>'], # URLs with title
@@ -79,7 +57,32 @@ def text_to_html(text)
   text
 end
 
-def convert_issues
+def process_files
+  # Preprocess files
+  print "Preprocessing files... "
+  @article_files = {}
+  @source.css('table[name=files]').each do |f|
+    case f.column('module')
+    when '4'
+      # Articles
+      @article_files[f.column('item')] = f
+    when '6'
+      # Issues
+    end
+  end
+
+  # Prepare file paths
+  @file_paths = {}
+  @source.css('table[name=_links]').each do |l|
+    if l.column('current') && l.column('module') == '15'
+      @file_paths[l.column('item')] = l.column('link')
+    end
+  end
+
+  puts "Done."
+end
+
+def process_issues
   print "Parsing issues... "
   @valid_issues = []
   @draft_issues = []
@@ -90,7 +93,7 @@ def convert_issues
   puts "found #{@valid_issues.length} valid issues, including #{@draft_issues.length} draft issues. Done."
 end
 
-def convert_articles
+def process_articles
   print "Parsing articles... "
   @source.css('table[name=articles]').each do |a|
     # Only import articles that are marked as current
@@ -168,7 +171,7 @@ def convert_articles
   puts "Done."
 end
 
-def convert_pages
+def process_pages
   print "Parsing pages... "
   @source.css('table[name=pages]').each do |p|
     # Only import articles that are marked as current
@@ -194,11 +197,12 @@ def convert_pages
   puts "Done."
 end
 
-# Convert all
-%w(issues articles pages).each do |m|
-  send "convert_#{m}"
+# Process everything
+%w(files issues articles pages).each do |m|
+  send "process_#{m}"
 end
 
+# Write XML, and we're done
 print "Writing #{ARGV[1]}... "
 File.open(ARGV[1], 'w') { |f| f.write(@target.to_xml) }
 puts "Done."
